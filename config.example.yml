@@ -1,0 +1,28 @@
+wanderer:
+  url: https://wanderer.erral.freemyip.com
+  # Prefer the WANDERER_TOKEN environment variable. If you store the token here,
+  # keep this file at mode 0600.
+  # token: wanderer_key_...
+
+garmin:
+  email: you@example.com
+
+state_dir: ~/.local/share/garmin-to-wanderer
+
+retry_attempts: 3
+retry_backoff: 1.0
+
+sync:
+  # Required for the first run; later runs use the local cursor instead.
+  since: 2024-01-01
+  include: []
+  exclude: []
+  default_category: Other
+  category_map:
+    road_biking: Biking/Road
+    mountain_biking: Biking/MTB
+    gravel_cycling: Biking/Gravel
+    hiking: Hiking
+    trail_running: Running/Trail
+    running: Running
+    walking: Walking

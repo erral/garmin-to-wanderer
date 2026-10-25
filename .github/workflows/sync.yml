@@ -1,0 +1,83 @@
+name: Sync (manual)
+
+# Manual, dry-run-first sync from GitHub Actions.
+#
+# Required repository secrets:
+#   WANDERER_URL             e.g. https://wanderer.example.com
+#   WANDERER_TOKEN           wanderer_key_...
+#   GARMIN_TOKENSTORE_B64    base64 of `tar -czf - garmintoken`
+#
+# The Garmin token cache is created locally by `garmin-to-wanderer setup garmin`.
+# Refresh the secret periodically by re-running that command and re-encoding the
+# directory. This workflow does not store a Garmin password.
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Start date (YYYY-MM-DD), inclusive"
+        required: true
+      until:
+        description: "End date (YYYY-MM-DD), inclusive. Empty means today."
+        required: false
+      dry_run:
+        description: "Dry run (do not write to Wanderer)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      WANDERER_URL: ${{ secrets.WANDERER_URL }}
+      WANDERER_TOKEN: ${{ secrets.WANDERER_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Restore Garmin token cache
+        env:
+          GARMIN_TOKENSTORE_B64: ${{ secrets.GARMIN_TOKENSTORE_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/g2w/garmintoken"
+          printf '%s' "$GARMIN_TOKENSTORE_B64" \
+            | base64 -d \
+            | tar -xz -C "$RUNNER_TEMP/g2w/garmintoken"
+
+      - name: Write config
+        run: |
+          mkdir -p "$RUNNER_TEMP/g2w"
+          cat > "$RUNNER_TEMP/g2w/config.yml" <<EOF
+          wanderer:
+            url: ${WANDERER_URL}
+          state_dir: $RUNNER_TEMP/g2w
+          EOF
+
+      - name: Sync
+        run: |
+          args=(--config "$RUNNER_TEMP/g2w/config.yml" --since "${{ inputs.since }}")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "${{ inputs.until }}" ]; then
+            args+=(--until "${{ inputs.until }}")
+          fi
+          garmin-to-wanderer sync "${args[@]}" \
+            --report "$RUNNER_TEMP/g2w/report.json"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garmin-to-wanderer-report
+          path: ${{ runner.temp }}/g2w/report.json
+          if-no-files-found: ignore
