@@ -50,14 +50,16 @@ Issues = "https://github.com/erral/garmin-to-wanderer/issues"
 Releases = "https://github.com/erral/garmin-to-wanderer/releases"
 
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["garmin_to_wanderer*"]
 
-[tool.setuptools.dynamic]
-version = { attr = "garmin_to_wanderer.__version__" }
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

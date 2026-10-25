@@ -51,7 +51,7 @@ Wanderer
 - Configurable Garmin activity type → Wanderer category mapping.
 - Detects trails deleted in Wanderer without silently re-importing them.
 - Retries transient GET/form-update failures with exponential backoff.
-- 54 unit tests with mocked Garmin and Wanderer responses.
+- 56 unit tests with mocked Garmin and Wanderer responses.
 
 ## Requirements
 
@@ -182,6 +182,12 @@ garmin-to-wanderer status
 This prints the config path, Wanderer URL, token presence, Garmin token store,
 state database, cursor, and stored activity counts. It does not contact either
 service.
+
+The installed version is available with:
+
+```bash
+garmin-to-wanderer --version
+```
 
 ## Usage
 
@@ -319,7 +325,7 @@ Pass `--since` or `--rebuild-state` explicitly.
 
 ## GitHub Actions
 
-Three workflows are included:
+Four workflows are included:
 
 - `.github/workflows/ci.yml` runs `ruff` and `pytest` on push and pull requests,
   and validates the built distributions.
@@ -327,6 +333,8 @@ Three workflows are included:
   dry-run by default and runs from the GitHub-hosted runner.
 - `.github/workflows/publish.yml` publishes a GitHub release to PyPI through
   Trusted Publishing. See [Releasing to PyPI](#releasing-to-pypi).
+- `.github/workflows/publish-testpypi.yml` is a **manual** pre-release upload to
+  TestPyPI.
 
 The manual sync avoids storing a Garmin password. Instead it restores a Garmin
 token cache from a repository secret. Create the cache locally and encode it:
@@ -365,8 +373,17 @@ Caveats:
 This project uses **PyPI Trusted Publishing (OIDC)**, so no PyPI API token or
 password is stored in GitHub. The publisher is
 `.github/workflows/publish.yml`, the GitHub environment is `pypi`, and the
-version comes from `garmin_to_wanderer/__init__.py` (`pyproject.toml` reads it
-dynamically).
+version is derived from **git tags** by `setuptools-scm`. There is no version
+string to bump by hand.
+
+Publishing is tied to a **published GitHub release**, which is created from a
+tag. A raw tag push does not publish the package. This is deliberate: the
+release is a manual checkpoint, carries release notes, and gives one obvious
+workflow run to re-run if the upload fails.
+
+Use tags in the form `vMAJOR.MINOR.PATCH` (for example `v0.1.0`). Builds
+between tags get a development version such as `0.1.1.dev3`, which is what you
+would publish to TestPyPI.
 
 ### One-time PyPI setup
 
@@ -387,13 +404,19 @@ release. No `PYPI_API_TOKEN` secret is needed.
 
 ### Release checklist
 
-1. Bump `__version__` in `garmin_to_wanderer/__init__.py`.
-2. Commit and push the version bump.
-3. Tag the commit and create a GitHub release:
+1. Make sure the release commit is on `main` and the working tree is clean.
+2. Create an annotated tag and push it:
 
    ```bash
-   git tag v0.1.0
+   git tag -a v0.1.0 -m "v0.1.0"
    git push origin v0.1.0
+   ```
+
+   `setuptools-scm` derives the version `0.1.0` from this tag.
+
+3. Create the GitHub release from that tag:
+
+   ```bash
    gh release create v0.1.0 --generate-notes
    ```
 
@@ -406,11 +429,12 @@ release. No `PYPI_API_TOKEN` secret is needed.
 
    ```bash
    pip install garmin-to-wanderer==0.1.0
-   garmin-to-wanderer --help
+   garmin-to-wanderer --version
    ```
 
-You can also run **Actions → Publish → Run workflow** to retry a failed publish.
-PyPI rejects an already-published version, so bump the version before retrying.
+To retry a failed publish, re-run the failed `Publish` workflow from the
+Actions tab. PyPI rejects an already-published version, so create a new tag
+(for example `v0.1.1`) before retrying.
 
 ### Local packaging check
 
@@ -422,19 +446,22 @@ uv pip install --python .venv/bin/python -e '.[dev]'
 
 ### TestPyPI (optional)
 
-Add a second pending publisher at
-<https://test.pypi.org/manage/account/publishing/> with the same owner,
-repository, and workflow, but environment name `testpypi`. Then publish a
-manual pre-release with:
+TestPyPI is a separate index for pre-release checks. The manual
+`.github/workflows/publish-testpypi.yml` workflow uploads the build there.
 
-```yaml
-- uses: pypa/gh-action-pypi-publish@release/v1
-  with:
-    repository-url: https://test.pypi.org/legacy/
-    print-hash: true
-```
+One-time setup:
 
-The PyPI workflow itself only publishes from a GitHub release.
+1. Create a GitHub environment named `testpypi`.
+2. Add a pending publisher at
+   <https://test.pypi.org/manage/account/publishing/> with the same owner and
+   repository, workflow name `publish-testpypi.yml`, and environment name
+   `testpypi`.
+
+Then run **Actions → Publish (TestPyPI) → Run workflow**. The version comes from
+`setuptools-scm`, so a run between tags gets a development version such as
+`0.1.1.dev3`; TestPyPI still rejects duplicate versions, so use a fresh commit
+(or a new tag) for each test upload. The PyPI workflow itself only publishes
+from a GitHub release.
 
 ## Development
 

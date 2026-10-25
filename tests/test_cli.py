@@ -34,6 +34,13 @@ sync:
     return path
 
 
+def test_version_option():
+    result = CliRunner().invoke(cli.app, ["--version"])
+
+    assert result.exit_code == 0
+    assert "garmin-to-wanderer" in result.output
+
+
 def test_status_without_config(tmp_path):
     result = CliRunner().invoke(cli.app, ["status", "--config", str(tmp_path / "missing.yml")])
 

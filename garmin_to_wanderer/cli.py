@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from garmin_to_wanderer import __version__
 from garmin_to_wanderer.config import (
     Config,
     ConfigError,
@@ -34,6 +35,28 @@ app = typer.Typer(
 )
 setup_app = typer.Typer(no_args_is_help=True, help="Configure Garmin and Wanderer.")
 app.add_typer(setup_app, name="setup")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"garmin-to-wanderer {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Synchronise Garmin Connect activities to Wanderer."""
+
 
 ConfigOption = Annotated[
     Path | None,
