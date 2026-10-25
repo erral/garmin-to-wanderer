@@ -5,23 +5,13 @@ Garmin Connect as the source of truth.
 
 This is a small, single-user CLI for a homelab: it polls Garmin Connect, filters
 to GPS activities, uploads the original FIT file (or a GPX fallback), and fills
-in Wanderer metadata. FitTrackee is **not** touched; the existing
-[`garmin-to-fittrackee`](https://github.com/Dryusdan/garmin-to-fittrackee) setup
-keeps running as a parallel sink.
+in Wanderer metadata.
 
-> **Disclaimer**
->
-> This project was written using **OpenCode** and **DeepSeek Flash**. It is
-> provided as-is, without any warranty. Review the code before trusting it with
-> your Garmin session or your Wanderer API token. The Wanderer API token grants
-> full access to your Wanderer account.
+## Background
 
-## Why
-
-Strava's API terms changed, so the old Strava → Wanderer import stopped working.
-Garmin Connect remains the place where activities are recorded, and Wanderer is
-the place where they should be browsed. This tool connects the two without going
-through Strava or FitTrackee.
+The creator needed a way to automatically import Garmin Connect activities into
+Wanderer. With the previous Strava-based import no longer available, there was
+no practical alternative but to write this tool.
 
 ## How it works
 
@@ -75,26 +65,24 @@ Targeted at Wanderer v0.21.2 and `garminconnect` 0.3.20.
 
 ## Installation
 
-Using `uv` (recommended):
+From PyPI:
 
 ```bash
-git clone https://github.com/YOUR_USER/garmin-to-wanderer.git
+pip install garmin-to-wanderer
+```
+
+Or install it as an isolated tool:
+
+```bash
+uv tool install garmin-to-wanderer
+```
+
+From source, for development:
+
+```bash
+git clone https://github.com/erral/garmin-to-wanderer.git
 cd garmin-to-wanderer
 uv venv .venv
-uv pip install --python .venv/bin/python -e .
-```
-
-Using plain `pip`:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -e .
-```
-
-For development, install the test tools:
-
-```bash
 uv pip install --python .venv/bin/python -e '.[dev]'
 ```
 
@@ -103,15 +91,21 @@ The console script is `garmin-to-wanderer` (or
 
 ## Configuration
 
-Copy the example and edit it:
+Create the config directory:
 
 ```bash
 mkdir -p ~/.config/garmin-to-wanderer
+chmod 700 ~/.config/garmin-to-wanderer
+```
+
+If you have a source checkout, start from `config.example.yml`:
+
+```bash
 cp config.example.yml ~/.config/garmin-to-wanderer/config.yml
 chmod 600 ~/.config/garmin-to-wanderer/config.yml
 ```
 
-Minimal `config.yml`:
+Otherwise create the file manually with this minimal `config.yml`:
 
 ```yaml
 wanderer:
@@ -311,8 +305,7 @@ Pass `--since` or `--rebuild-state` explicitly.
 
 ## Limitations
 
-- No two-way sync. Wanderer changes do not flow back to Garmin or FitTrackee.
-- FitTrackee is not involved. Keep `garmin-to-fittrackee` for that sink.
+- No two-way sync. Wanderer changes do not flow back to Garmin.
 - Wanderer converts FIT to GPX and discards the original FIT. Heart rate is
   dropped by that conversion, and Wanderer has no heart-rate field anyway.
 - Activities without GPS are skipped. `--include-no-gps` is not implemented.
@@ -326,11 +319,14 @@ Pass `--since` or `--rebuild-state` explicitly.
 
 ## GitHub Actions
 
-Two workflows are included:
+Three workflows are included:
 
-- `.github/workflows/ci.yml` runs `ruff` and `pytest` on push and pull requests.
+- `.github/workflows/ci.yml` runs `ruff` and `pytest` on push and pull requests,
+  and validates the built distributions.
 - `.github/workflows/sync.yml` is a **manual** (`workflow_dispatch`) sync. It is
   dry-run by default and runs from the GitHub-hosted runner.
+- `.github/workflows/publish.yml` publishes a GitHub release to PyPI through
+  Trusted Publishing. See [Releasing to PyPI](#releasing-to-pypi).
 
 The manual sync avoids storing a Garmin password. Instead it restores a Garmin
 token cache from a repository secret. Create the cache locally and encode it:
@@ -363,6 +359,82 @@ Caveats:
   not as a replacement for the homelab cursor.
 - A scheduled sync is deliberately not included: cached Garmin tokens, MFA, and
   LAN-only Wanderer instances make a cron job on a public runner fragile.
+
+## Releasing to PyPI
+
+This project uses **PyPI Trusted Publishing (OIDC)**, so no PyPI API token or
+password is stored in GitHub. The publisher is
+`.github/workflows/publish.yml`, the GitHub environment is `pypi`, and the
+version comes from `garmin_to_wanderer/__init__.py` (`pyproject.toml` reads it
+dynamically).
+
+### One-time PyPI setup
+
+1. Create a GitHub environment named `pypi` in **Settings → Environments**. Add
+   required reviewers if you want a manual approval gate.
+2. On PyPI, create a **pending trusted publisher** at
+   <https://pypi.org/manage/account/publishing/> with:
+   - **PyPI project name:** `garmin-to-wanderer`
+   - **Owner:** your GitHub user or organisation (for example `erral`)
+   - **Repository name:** `garmin-to-wanderer`
+   - **Workflow name:** `publish.yml`
+   - **Environment name:** `pypi`
+3. If the project name is already taken, change `project.name` in
+   `pyproject.toml` and use the same name in the pending publisher.
+
+The pending publisher becomes a normal publisher after the first successful
+release. No `PYPI_API_TOKEN` secret is needed.
+
+### Release checklist
+
+1. Bump `__version__` in `garmin_to_wanderer/__init__.py`.
+2. Commit and push the version bump.
+3. Tag the commit and create a GitHub release:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   gh release create v0.1.0 --generate-notes
+   ```
+
+   Publishing the release triggers the `Publish` workflow.
+
+4. The workflow runs lint and tests, builds the sdist and wheel, runs
+   `twine check`, then uploads through OIDC. PEP 740 attestations are generated
+   by the PyPA publish action by default.
+5. Verify the release:
+
+   ```bash
+   pip install garmin-to-wanderer==0.1.0
+   garmin-to-wanderer --help
+   ```
+
+You can also run **Actions → Publish → Run workflow** to retry a failed publish.
+PyPI rejects an already-published version, so bump the version before retrying.
+
+### Local packaging check
+
+```bash
+uv pip install --python .venv/bin/python -e '.[dev]'
+.venv/bin/python -m build
+.venv/bin/twine check dist/*
+```
+
+### TestPyPI (optional)
+
+Add a second pending publisher at
+<https://test.pypi.org/manage/account/publishing/> with the same owner,
+repository, and workflow, but environment name `testpypi`. Then publish a
+manual pre-release with:
+
+```yaml
+- uses: pypa/gh-action-pypi-publish@release/v1
+  with:
+    repository-url: https://test.pypi.org/legacy/
+    print-hash: true
+```
+
+The PyPI workflow itself only publishes from a GitHub release.
 
 ## Development
 
@@ -406,11 +478,23 @@ tests/                Unit tests with fakes and HTTP mocks
 - **Partial records** — the next run retries metadata only. Use `--force` if you
   want to refresh the GPX too.
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 ## Acknowledgements
 
 - [Wanderer](https://github.com/open-wanderer/wanderer) for the trail database
   and API.
 - [`garminconnect`](https://github.com/cyberjunky/python-garminconnect) for the
   unofficial Garmin client.
-- [`garmin-to-fittrackee`](https://github.com/Dryusdan/garmin-to-fittrackee) for
-  the original homelab pattern.
+
+## AI Usage
+
+This project was written with [OpenCode](https://opencode.ai),
+[DeepSeek Flash](https://www.deepseek.com/), and
+[Matt Pocock's skills](https://github.com/mattpocock/skills).
+
+It is provided as-is, without any warranty. Review the code before trusting it
+with your Garmin session or your Wanderer API token. The Wanderer API token
+grants full access to your Wanderer account.
