@@ -26,7 +26,7 @@ class ReportEntry:
     type_key: str = ""
     has_description: bool = False
 
-    def to_dict(self) -> dict[str, str | None]:
+    def to_dict(self) -> dict[str, str | bool | None]:
         return {
             "garmin_id": self.garmin_id,
             "name": self.name,
@@ -34,6 +34,8 @@ class ReportEntry:
             "status": str(self.status),
             "wanderer_id": self.wanderer_id,
             "message": self.message,
+            "type_key": self.type_key,
+            "has_description": self.has_description,
         }
 
 
@@ -98,10 +100,7 @@ class Report:
         )
 
     def print_summary(self, *, elapsed: float, report_path: Path | None = None) -> None:
-        self._print_header()
-        self._print_counts()
-        print(f"Elapsed: {elapsed:.1f}s")
-        self._print_report_path(report_path)
+        self._print_report(elapsed=elapsed, report_path=report_path)
 
     def print_human(
         self,
@@ -110,10 +109,25 @@ class Report:
         elapsed: float | None = None,
         report_path: Path | None = None,
     ) -> None:
+        self._print_report(
+            elapsed=elapsed,
+            report_path=report_path,
+            include_entries=True,
+            verbose=verbose,
+        )
+
+    def _print_report(
+        self,
+        *,
+        elapsed: float | None,
+        report_path: Path | None,
+        include_entries: bool = False,
+        verbose: bool = False,
+    ) -> None:
         self._print_header()
         self._print_counts()
 
-        if self.entries:
+        if include_entries and self.entries:
             print("")
             for entry in self.entries:
                 print(format_entry(entry, verbose=verbose))

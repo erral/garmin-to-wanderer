@@ -37,12 +37,14 @@ Resolved with the user during grilling on 2026-11-06.
   the minimal summary. Live lines still stream unless `--quiet` is also set.
   Under `--quiet`, the report-path confirmation is omitted even in the final
   report.
-- **`--report PATH`:** keeps the existing JSON schema and works in default,
-  quiet, and final-report modes.
+- **`--report PATH`:** writes the JSON report in default, quiet, and
+  final-report modes. The schema keeps its existing fields and adds `type_key`
+  and `has_description` per activity.
 - **Contradiction handling:** `--quiet` together with `--verbose` is invalid.
   Print `Error: --quiet and --verbose cannot be used together.` to stderr, exit
   `2`, and do not load config or contact either service.
-- **Unchanged:** JSON report shape, exit codes `0/1/2/3`, `--dry-run` semantics.
+- **Unchanged:** exit codes `0/1/2/3` and `--dry-run` semantics. The JSON report
+  is extended with `type_key` and `has_description` per activity.
 
 ## Plan
 
@@ -64,7 +66,8 @@ Resolved with the user during grilling on 2026-11-06.
 - `--quiet` prints nothing on stdout; failures go to stderr.
 - `--quiet --final-report` prints only the expanded final report.
 - `--quiet --verbose` exits `2` before config or network access.
-- `--report PATH` writes the unchanged JSON schema in every mode.
+- `--report PATH` writes the JSON report in every mode, including `type_key` and
+  `has_description` per activity.
 - Tests and `ruff` pass; README documents the new modes.
 
 ## Answer
@@ -84,9 +87,12 @@ Implemented on branch `1-stream-sync-reporting` in commit
   success message (`uploaded` or `refreshed`).
 - Quiet runs suppress the report-path confirmation; the JSON file is still
   written.
-- README documents the output modes; 66 tests and `ruff` pass.
+- The JSON entry schema now carries `type_key` and `has_description` alongside
+  the existing fields.
+- README documents the output modes; 67 tests and `ruff` pass.
 
 Review follow-ups handled: extracted the shared failure-status predicate and
 report-path printer, removed the unused `activity` argument from the entry
-callback, renamed the progress hook to `on_phase`, and added verbose success
-messages.
+callback, renamed the progress hook to `on_phase`, added verbose success
+messages, unified summary/final report assembly, and extended the JSON schema
+with `type_key`/`has_description`.

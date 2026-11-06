@@ -321,7 +321,8 @@ def test_sync_writes_report_file_in_default_mode(tmp_path, monkeypatch):
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["counts"] == {"imported": 1}
     assert payload["entries"][0]["status"] == "imported"
-    assert "type_key" not in payload["entries"][0]
+    assert payload["entries"][0]["type_key"] == "road_biking"
+    assert payload["entries"][0]["has_description"] is True
 
 
 def test_sync_writes_report_file_in_quiet_mode_without_confirmation(tmp_path, monkeypatch):
@@ -374,3 +375,19 @@ def test_quiet_final_report_suppresses_report_path_confirmation(tmp_path, monkey
     assert "imported: 1" in result.stdout
     assert str(report_path) not in result.stdout
     assert report_path.is_file()
+
+
+def test_sync_final_report_without_quiet_keeps_live_lines(tmp_path, monkeypatch):
+    path = write_config(tmp_path)
+    monkeypatch.setattr(cli, "WandererClient", FakeWanderer)
+    monkeypatch.setattr(cli, "GarminConnectSource", FakeSource)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["sync", "--config", str(path), "--since", "2024-05-01", "--final-report"],
+    )
+
+    assert result.exit_code == 0
+    assert "[imported]" in result.stdout
+    assert "Garmin -> Wanderer" in result.stdout
+    assert "imported: 1" in result.stdout
