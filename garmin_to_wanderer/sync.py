@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 
 from garmin_to_wanderer.config import Config
 from garmin_to_wanderer.mapping import WandererTaxonomy, base_type_key, resolve_category
 from garmin_to_wanderer.models import ActivityStatus, GarminActivity
-from garmin_to_wanderer.reporting import Report
+from garmin_to_wanderer.reporting import EntryCallback, Report
 from garmin_to_wanderer.sources.base import GarminSource
 from garmin_to_wanderer.state import ActivityRecord, StateStore
 from garmin_to_wanderer.wanderer import WandererClient, WandererError
@@ -29,15 +30,28 @@ class SyncRunner:
         state: StateStore,
         taxonomy: WandererTaxonomy,
         config: Config,
+        on_entry: EntryCallback | None = None,
+        on_phase: Callable[[str], None] | None = None,
     ):
         self.source = source
         self.wanderer = wanderer
         self.state = state
         self.taxonomy = taxonomy
         self.config = config
+        self.on_entry = on_entry
+        self.on_phase = on_phase
+
+    def _phase(self, message: str) -> None:
+        if self.on_phase is not None:
+            self.on_phase(message)
 
     def run(self, options: SyncOptions) -> Report:
-        report = Report(since=options.since, until=options.until, dry_run=options.dry_run)
+        report = Report(
+            since=options.since,
+            until=options.until,
+            dry_run=options.dry_run,
+            on_entry=self.on_entry,
+        )
         processed: set[str] = set()
 
         for record in self.state.list_by_status(ActivityStatus.PARTIAL):
@@ -137,6 +151,7 @@ class SyncRunner:
             )
             return
 
+        self._phase(f"Retrying metadata for {activity.name}")
         try:
             if self.wanderer.get_trail(record.wanderer_trail_id) is None:
                 self.state.set_status(record.garmin_id, ActivityStatus.DELETED_IN_WANDERER)
@@ -179,19 +194,25 @@ class SyncRunner:
             return
 
         trail_id: str | None = None
+        imported_message = "uploaded"
         try:
+            self._phase(f"Downloading {activity.garmin_id}")
             downloaded = self.source.download_original(activity.garmin_id)
             existing_id = existing.wanderer_trail_id if existing else None
 
             if existing_id and self.wanderer.get_trail(existing_id) is not None:
+                self._phase(f"Refreshing {activity.name}")
                 self.wanderer.update_trail_file(existing_id, downloaded, name=activity.name)
                 trail_id = existing_id
+                imported_message = "refreshed"
             else:
+                self._phase(f"Uploading {activity.name}")
                 trail = self.wanderer.upload_file(downloaded, name=activity.name)
                 trail_id = str(trail.get("id", "")) or None
                 if trail_id is None:
                     raise WandererError("Wanderer upload returned no trail id")
 
+            self._phase(f"Updating metadata for {activity.name}")
             self._apply_metadata(trail_id, activity)
         except Exception as exc:
             status = ActivityStatus.PARTIAL if trail_id else ActivityStatus.FAILED
@@ -209,7 +230,12 @@ class SyncRunner:
             status=ActivityStatus.IMPORTED,
             wanderer_trail_id=trail_id,
         )
-        report.add(activity, ActivityStatus.IMPORTED, wanderer_id=trail_id)
+        report.add(
+            activity,
+            ActivityStatus.IMPORTED,
+            wanderer_id=trail_id,
+            message=imported_message,
+        )
 
     def _apply_metadata(self, trail_id: str, activity: GarminActivity) -> None:
         category_id, subcategory_id = resolve_category(

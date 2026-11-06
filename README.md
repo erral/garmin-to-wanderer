@@ -45,13 +45,15 @@ Wanderer
 
 - Incremental sync from the last imported activity by default.
 - Explicit date-range backfills with `--since` / `--until`.
+- Live per-activity progress plus a minimal end summary.
+- Quiet, final-report, and verbose output modes.
 - Dry-run report with per-activity outcomes.
 - JSON report for cron jobs and troubleshooting.
 - Skips activities without GPS and reports them.
 - Configurable Garmin activity type → Wanderer category mapping.
 - Detects trails deleted in Wanderer without silently re-importing them.
 - Retries transient GET/form-update failures with exponential backoff.
-- 56 unit tests with mocked Garmin and Wanderer responses.
+- 67 unit tests with mocked Garmin and Wanderer responses.
 
 ## Requirements
 
@@ -215,6 +217,23 @@ garmin-to-wanderer sync --since 2024-01-01 --until 2024-01-31
 Without `--since`, the tool starts 48 hours before the last imported activity.
 On the first run it falls back to `sync.since`; if neither exists, it stops with
 an error.
+
+By default each activity is printed as soon as its outcome is known, followed by
+a minimal summary with per-status counts, elapsed time, and the report path when
+`--report` was used.
+
+### Output modes
+
+| Mode | Behaviour |
+|---|---|
+| default | Live line per activity, then the minimal summary. |
+| `-q`, `--quiet` | Suppress live lines and the summary. Failures and partials still go to stderr. `--report` still writes the file, without the confirmation line. |
+| `--final-report` | Print the expanded end-of-run report instead of the minimal summary. Combine with `--quiet` for an end-only report. |
+| `--verbose` | Add the Wanderer trail id, Garmin type key, description presence, success messages, and pre-action phase lines (download, upload/refresh, metadata update). |
+| `--report PATH` | Write the JSON report in any mode. Each entry includes the Garmin `type_key` and `has_description`. |
+
+`--quiet` and `--verbose` are mutually exclusive; using both exits with code `2`
+before loading the config or contacting either service.
 
 ### Backfill
 
