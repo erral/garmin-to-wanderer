@@ -249,3 +249,34 @@ def test_excluded_type_is_reported(tmp_path):
     assert report.counts() == {"skipped_excluded": 1}
     assert wanderer.uploaded == []
     state.close()
+
+
+def test_callbacks_observe_each_outcome_and_phase(tmp_path):
+    source = FakeSource([activity("1"), activity("2")])
+    wanderer = FakeWanderer()
+    state = StateStore(tmp_path / "state.db")
+    entries: list[tuple[str, str]] = []
+    phases: list[str] = []
+    sync = SyncRunner(
+        source=source,
+        wanderer=wanderer,
+        state=state,
+        taxonomy=taxonomy(),
+        config=config(tmp_path),
+        on_entry=lambda activity, entry: entries.append((activity.garmin_id, str(entry.status))),
+        on_progress=phases.append,
+    )
+
+    report = sync.run(options())
+
+    assert report.counts() == {"imported": 2}
+    assert entries == [("1", "imported"), ("2", "imported")]
+    assert phases == [
+        "Downloading 1",
+        "Uploading Morning ride",
+        "Updating metadata for Morning ride",
+        "Downloading 2",
+        "Uploading Morning ride",
+        "Updating metadata for Morning ride",
+    ]
+    state.close()

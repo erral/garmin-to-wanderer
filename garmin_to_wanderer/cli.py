@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -16,6 +17,7 @@ from garmin_to_wanderer.config import (
     save_config,
 )
 from garmin_to_wanderer.mapping import WandererTaxonomy
+from garmin_to_wanderer.reporting import ConsoleReporter
 from garmin_to_wanderer.sources import (
     GarminAuthError,
     GarminConnectSource,
@@ -185,11 +187,28 @@ def sync(
         typer.Option("--rebuild-state", help="Clear the local mapping before syncing."),
     ] = False,
     verbose: Annotated[
-        bool, typer.Option("--verbose", help="Show every activity in the report.")
+        bool,
+        typer.Option(
+            "--verbose",
+            help="Add identifiers, messages, and pre-action phase lines.",
+        ),
+    ] = False,
+    quiet: Annotated[
+        bool, typer.Option("--quiet", "-q", help="Suppress progress and the summary.")
+    ] = False,
+    final_report: Annotated[
+        bool,
+        typer.Option(
+            "--final-report",
+            help="Print the expanded report at the end instead of the minimal summary.",
+        ),
     ] = False,
     config_path: ConfigOption = None,
 ) -> None:
     """Import Garmin activities into Wanderer."""
+    if quiet and verbose:
+        _fail("--quiet and --verbose cannot be used together.", 2)
+
     try:
         config = load_config(config_path)
         wanderer_url, wanderer_token = config.require_wanderer()
@@ -201,6 +220,8 @@ def sync(
 
     ensure_state_dir(config)
     state = StateStore(config.state_db)
+    reporter = ConsoleReporter(verbose=verbose, quiet=quiet)
+    started = time.monotonic()
     try:
         if rebuild_state:
             if dry_run:
@@ -235,6 +256,8 @@ def sync(
             state=state,
             taxonomy=taxonomy,
             config=config,
+            on_entry=reporter.entry,
+            on_progress=reporter.phase,
         )
         report = runner.run(
             SyncOptions(
@@ -253,10 +276,14 @@ def sync(
     finally:
         state.close()
 
-    report.print_human(verbose=verbose)
+    elapsed = time.monotonic() - started
     if report_path is not None:
         report.write_json(report_path)
-        typer.echo(f"Report written to {report_path}.")
+
+    if final_report:
+        report.print_human(verbose=verbose, elapsed=elapsed, report_path=report_path)
+    elif not quiet:
+        report.print_summary(elapsed=elapsed, report_path=report_path)
     if report.has_failures():
         raise typer.Exit(1)
 
