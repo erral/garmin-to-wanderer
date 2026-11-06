@@ -263,8 +263,8 @@ def test_callbacks_observe_each_outcome_and_phase(tmp_path):
         state=state,
         taxonomy=taxonomy(),
         config=config(tmp_path),
-        on_entry=lambda activity, entry: entries.append((activity.garmin_id, str(entry.status))),
-        on_progress=phases.append,
+        on_entry=lambda entry: entries.append((entry.garmin_id, str(entry.status))),
+        on_phase=phases.append,
     )
 
     report = sync.run(options())

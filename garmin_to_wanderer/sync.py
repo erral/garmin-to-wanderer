@@ -31,7 +31,7 @@ class SyncRunner:
         taxonomy: WandererTaxonomy,
         config: Config,
         on_entry: EntryCallback | None = None,
-        on_progress: Callable[[str], None] | None = None,
+        on_phase: Callable[[str], None] | None = None,
     ):
         self.source = source
         self.wanderer = wanderer
@@ -39,11 +39,11 @@ class SyncRunner:
         self.taxonomy = taxonomy
         self.config = config
         self.on_entry = on_entry
-        self.on_progress = on_progress
+        self.on_phase = on_phase
 
     def _phase(self, message: str) -> None:
-        if self.on_progress is not None:
-            self.on_progress(message)
+        if self.on_phase is not None:
+            self.on_phase(message)
 
     def run(self, options: SyncOptions) -> Report:
         report = Report(
@@ -194,6 +194,7 @@ class SyncRunner:
             return
 
         trail_id: str | None = None
+        imported_message = "uploaded"
         try:
             self._phase(f"Downloading {activity.garmin_id}")
             downloaded = self.source.download_original(activity.garmin_id)
@@ -203,6 +204,7 @@ class SyncRunner:
                 self._phase(f"Refreshing {activity.name}")
                 self.wanderer.update_trail_file(existing_id, downloaded, name=activity.name)
                 trail_id = existing_id
+                imported_message = "refreshed"
             else:
                 self._phase(f"Uploading {activity.name}")
                 trail = self.wanderer.upload_file(downloaded, name=activity.name)
@@ -228,7 +230,12 @@ class SyncRunner:
             status=ActivityStatus.IMPORTED,
             wanderer_trail_id=trail_id,
         )
-        report.add(activity, ActivityStatus.IMPORTED, wanderer_id=trail_id)
+        report.add(
+            activity,
+            ActivityStatus.IMPORTED,
+            wanderer_id=trail_id,
+            message=imported_message,
+        )
 
     def _apply_metadata(self, trail_id: str, activity: GarminActivity) -> None:
         category_id, subcategory_id = resolve_category(

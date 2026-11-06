@@ -257,7 +257,7 @@ def sync(
             taxonomy=taxonomy,
             config=config,
             on_entry=reporter.entry,
-            on_progress=reporter.phase,
+            on_phase=reporter.phase,
         )
         report = runner.run(
             SyncOptions(
@@ -280,10 +280,11 @@ def sync(
     if report_path is not None:
         report.write_json(report_path)
 
+    output_report_path = None if quiet else report_path
     if final_report:
-        report.print_human(verbose=verbose, elapsed=elapsed, report_path=report_path)
+        report.print_human(verbose=verbose, elapsed=elapsed, report_path=output_report_path)
     elif not quiet:
-        report.print_summary(elapsed=elapsed, report_path=report_path)
+        report.print_summary(elapsed=elapsed, report_path=output_report_path)
     if report.has_failures():
         raise typer.Exit(1)
 

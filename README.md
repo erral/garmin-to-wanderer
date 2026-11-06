@@ -53,7 +53,7 @@ Wanderer
 - Configurable Garmin activity type → Wanderer category mapping.
 - Detects trails deleted in Wanderer without silently re-importing them.
 - Retries transient GET/form-update failures with exponential backoff.
-- 65 unit tests with mocked Garmin and Wanderer responses.
+- 66 unit tests with mocked Garmin and Wanderer responses.
 
 ## Requirements
 

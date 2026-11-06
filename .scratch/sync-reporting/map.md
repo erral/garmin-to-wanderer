@@ -16,7 +16,7 @@ dumping everything at the end, with explicit output modes for unattended runs
 ## Tickets
 
 - [Stream sync reporting and add output modes](issues/01-stream-sync-reporting.md)
-  — in progress; default live output, `--quiet`, `--final-report`, `--verbose`
+  — resolved; default live output, `--quiet`, `--final-report`, `--verbose`
   detail, contradiction validation, tests, and README.
 
 ## Out of scope

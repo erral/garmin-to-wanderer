@@ -10,7 +10,9 @@ from pathlib import Path
 
 from garmin_to_wanderer.models import ActivityStatus, GarminActivity
 
-EntryCallback = Callable[[GarminActivity, "ReportEntry"], None]
+EntryCallback = Callable[["ReportEntry"], None]
+
+_FAILURE_STATUSES = (ActivityStatus.PARTIAL, ActivityStatus.FAILED)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,16 +72,13 @@ class Report:
         )
         self.entries.append(entry)
         if self._on_entry is not None:
-            self._on_entry(activity, entry)
+            self._on_entry(entry)
 
     def counts(self) -> dict[str, int]:
         return dict(Counter(str(entry.status) for entry in self.entries))
 
     def has_failures(self) -> bool:
-        return any(
-            entry.status in (ActivityStatus.PARTIAL, ActivityStatus.FAILED)
-            for entry in self.entries
-        )
+        return any(_is_failure(entry) for entry in self.entries)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -102,8 +101,7 @@ class Report:
         self._print_header()
         self._print_counts()
         print(f"Elapsed: {elapsed:.1f}s")
-        if report_path is not None:
-            print(f"Report written to {report_path}.")
+        self._print_report_path(report_path)
 
     def print_human(
         self,
@@ -122,8 +120,7 @@ class Report:
 
         if elapsed is not None:
             print(f"Elapsed: {elapsed:.1f}s")
-        if report_path is not None:
-            print(f"Report written to {report_path}.")
+        self._print_report_path(report_path)
 
     def _print_header(self) -> None:
         mode = " (dry run)" if self.dry_run else ""
@@ -139,6 +136,10 @@ class Report:
             if count:
                 print(f"  {status}: {count}")
 
+    def _print_report_path(self, report_path: Path | None) -> None:
+        if report_path is not None:
+            print(f"Report written to {report_path}.")
+
 
 def format_entry(entry: ReportEntry, *, verbose: bool = False) -> str:
     line = f"  {_short_time(entry.started_at)}  {entry.name}  [{entry.status}]"
@@ -149,9 +150,7 @@ def format_entry(entry: ReportEntry, *, verbose: bool = False) -> str:
             line += f" trail={entry.wanderer_id}"
         if entry.has_description:
             line += " description=yes"
-    if entry.message and (
-        verbose or entry.status in (ActivityStatus.PARTIAL, ActivityStatus.FAILED)
-    ):
+    if entry.message and (verbose or _is_failure(entry)):
         line += f" - {entry.message}"
     return line
 
@@ -167,12 +166,16 @@ class ConsoleReporter:
         if self.verbose and not self.quiet:
             print(f"  ... {message}", flush=True)
 
-    def entry(self, activity: GarminActivity, entry: ReportEntry) -> None:
+    def entry(self, entry: ReportEntry) -> None:
         if self.quiet:
-            if entry.status in (ActivityStatus.PARTIAL, ActivityStatus.FAILED):
+            if _is_failure(entry):
                 print(format_entry(entry), file=sys.stderr, flush=True)
             return
         print(format_entry(entry, verbose=self.verbose), flush=True)
+
+
+def _is_failure(entry: ReportEntry) -> bool:
+    return entry.status in _FAILURE_STATUSES
 
 
 def _short_time(value: str | None) -> str:

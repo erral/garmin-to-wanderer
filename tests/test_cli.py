@@ -291,6 +291,7 @@ def test_sync_verbose_adds_details_and_phase_lines(tmp_path, monkeypatch):
     assert "type=road_biking" in result.stdout
     assert "trail=trail-1" in result.stdout
     assert "description=yes" in result.stdout
+    assert "- uploaded" in result.stdout
     assert "Downloading 1" in result.stdout
     assert "Uploading Ride" in result.stdout
     assert "Updating metadata for Ride" in result.stdout
@@ -345,4 +346,31 @@ def test_sync_writes_report_file_in_quiet_mode_without_confirmation(tmp_path, mo
 
     assert result.exit_code == 0
     assert result.stdout == ""
+    assert report_path.is_file()
+
+
+def test_quiet_final_report_suppresses_report_path_confirmation(tmp_path, monkeypatch):
+    path = write_config(tmp_path)
+    report_path = tmp_path / "report.json"
+    monkeypatch.setattr(cli, "WandererClient", FakeWanderer)
+    monkeypatch.setattr(cli, "GarminConnectSource", FakeSource)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "sync",
+            "--config",
+            str(path),
+            "--since",
+            "2024-05-01",
+            "--quiet",
+            "--final-report",
+            "--report",
+            str(report_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "imported: 1" in result.stdout
+    assert str(report_path) not in result.stdout
     assert report_path.is_file()

@@ -1,7 +1,7 @@
 # Stream sync reporting and add output modes
 
 Type: task
-Status: ready
+Status: resolved
 Blocked by: none
 GitHub: erral/garmin-to-wanderer#1
 
@@ -35,6 +35,8 @@ Resolved with the user during grilling on 2026-11-06.
 - **`--final-report`:** prints the expanded end-of-run report (range, counts,
   every entry, trail id/message when verbose, elapsed, report path). It replaces
   the minimal summary. Live lines still stream unless `--quiet` is also set.
+  Under `--quiet`, the report-path confirmation is omitted even in the final
+  report.
 - **`--report PATH`:** keeps the existing JSON schema and works in default,
   quiet, and final-report modes.
 - **Contradiction handling:** `--quiet` together with `--verbose` is invalid.
@@ -67,4 +69,24 @@ Resolved with the user during grilling on 2026-11-06.
 
 ## Answer
 
-Implementing. The agreed behaviour above is the specification for this ticket.
+Implemented on branch `1-stream-sync-reporting` in commit
+`Stream sync reporting and add output modes`.
+
+- `Report` now fires an `on_entry` callback when each outcome is recorded;
+  `ConsoleReporter` streams the live line and verbose phase lines.
+- `SyncRunner` accepts `on_entry`/`on_phase` hooks and emits phases around
+  download, refresh, upload, and metadata update.
+- `sync` gained `-q/--quiet` and `--final-report`; `--quiet` + `--verbose` exits
+  `2` before config or network access.
+- `print_summary` is the minimal report; `print_human` is the expanded final
+  report and no longer hides imported activities.
+- Verbose imported lines show `type=`, `trail=`, `description=yes`, and the
+  success message (`uploaded` or `refreshed`).
+- Quiet runs suppress the report-path confirmation; the JSON file is still
+  written.
+- README documents the output modes; 66 tests and `ruff` pass.
+
+Review follow-ups handled: extracted the shared failure-status predicate and
+report-path printer, removed the unused `activity` argument from the entry
+callback, renamed the progress hook to `on_phase`, and added verbose success
+messages.
