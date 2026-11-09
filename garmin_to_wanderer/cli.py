@@ -265,6 +265,7 @@ def sync(
                 until=until_date,
                 dry_run=dry_run,
                 force=force,
+                explicit_window=since is not None or until is not None,
             )
         )
     except ConfigError as exc:
@@ -277,6 +278,8 @@ def sync(
         state.close()
 
     elapsed = time.monotonic() - started
+    if quiet and report.deferred_failures:
+        typer.echo(f"  deferred failures: {report.deferred_failures}", err=True)
     if report_path is not None:
         report.write_json(report_path)
 
@@ -312,9 +315,13 @@ def status(config_path: ConfigOption = None) -> None:
 
     if config.state_db.is_file():
         with StateStore(config.state_db) as state:
-            cursor = state.last_imported_start()
-            typer.echo(f"Last imported: {cursor.isoformat() if cursor is not None else '(none)'}")
+            cursor = state.last_seen_started_at()
+            typer.echo(f"Last seen: {cursor.isoformat() if cursor is not None else '(none)'}")
             counts = state.counts()
+            typer.echo(
+                f"Unresolved failures: failed {counts.get('failed', 0)}, "
+                f"partial {counts.get('partial', 0)}"
+            )
             if counts:
                 typer.echo("Stored activities:")
                 for stored_status, count in sorted(counts.items()):
@@ -325,7 +332,7 @@ def _resolve_since(value: str | None, config: Config, state: StateStore) -> date
     if value:
         return _parse_date(value, "--since")
 
-    cursor = state.last_imported_start()
+    cursor = state.last_seen_started_at()
     if cursor is not None:
         return cursor.date() - timedelta(days=2)
 

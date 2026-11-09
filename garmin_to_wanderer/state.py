@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from garmin_to_wanderer.models import ActivityStatus, GarminActivity
+
+_WATERMARK_KEY = "last_seen_started_at"
+_UNRESOLVED_STATUSES = (str(ActivityStatus.PARTIAL), str(ActivityStatus.FAILED))
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +37,9 @@ class StateStore:
         self._init_schema()
 
     def _init_schema(self) -> None:
+        had_sync_state = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'"
+        ).fetchone()
         self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS activities (
@@ -51,8 +57,20 @@ class StateStore:
             );
             CREATE INDEX IF NOT EXISTS idx_activities_status
                 ON activities(status);
+            CREATE TABLE IF NOT EXISTS sync_state (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
             """
         )
+        if had_sync_state is None:
+            seed = self._conn.execute(
+                "SELECT MAX(started_at) AS started_at FROM activities"
+            ).fetchone()
+            self._conn.execute(
+                "INSERT INTO sync_state (key, value) VALUES (?, ?)",
+                (_WATERMARK_KEY, seed["started_at"] if seed is not None else None),
+            )
         self._conn.commit()
 
     def get(self, garmin_id: str) -> ActivityRecord | None:
@@ -137,16 +155,63 @@ class StateStore:
         )
         self._conn.commit()
 
-    def last_imported_start(self) -> datetime | None:
+    def list_recoverable(
+        self,
+        *,
+        since: date | None = None,
+        until: date | None = None,
+        limit: int | None = None,
+    ) -> list[ActivityRecord]:
+        """Return unresolved records, filtered by local start date when given.
+
+        Without a limit, partial rows come first, then failed rows, each oldest
+        first. With a limit, the oldest rows across both statuses are selected
+        first, then reordered partial-first for execution.
+        """
+        query = "SELECT * FROM activities WHERE status IN (?, ?)"
+        params: list[object] = list(_UNRESOLVED_STATUSES)
+        if since is not None:
+            query += " AND substr(started_at, 1, 10) >= ?"
+            params.append(since.isoformat())
+        if until is not None:
+            query += " AND substr(started_at, 1, 10) <= ?"
+            params.append(until.isoformat())
+        query += " ORDER BY started_at ASC"
+        rows = self._conn.execute(query, params).fetchall()
+        records = [_row_to_record(row) for row in rows]
+
+        if limit is not None:
+            records = records[:limit]
+        return _partial_first(records)
+
+    def count_unresolved(self) -> int:
         row = self._conn.execute(
-            """
-            SELECT started_at FROM activities
-            WHERE status IN (?, ?)
-            ORDER BY started_at DESC LIMIT 1
-            """,
-            (str(ActivityStatus.IMPORTED), str(ActivityStatus.PARTIAL)),
+            "SELECT COUNT(*) AS count FROM activities WHERE status IN (?, ?)",
+            _UNRESOLVED_STATUSES,
         ).fetchone()
-        return datetime.fromisoformat(row["started_at"]) if row is not None else None
+        return int(row["count"])
+
+    def last_seen_started_at(self) -> datetime | None:
+        value = self._read_sync_value(_WATERMARK_KEY)
+        return datetime.fromisoformat(value) if value else None
+
+    def advance_watermark(self, value: datetime) -> None:
+        new_value = value.isoformat()
+        current = self._read_sync_value(_WATERMARK_KEY)
+        if current and current >= new_value:
+            return
+        self._conn.execute(
+            """
+            INSERT INTO sync_state (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (_WATERMARK_KEY, new_value),
+        )
+        self._conn.commit()
+
+    def _read_sync_value(self, key: str) -> str | None:
+        row = self._conn.execute("SELECT value FROM sync_state WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row is not None else None
 
     def counts(self) -> dict[str, int]:
         rows = self._conn.execute(
@@ -155,7 +220,7 @@ class StateStore:
         return {row["status"]: row["count"] for row in rows}
 
     def reset(self) -> None:
-        self._conn.executescript("DELETE FROM activities;")
+        self._conn.executescript("DELETE FROM activities; DELETE FROM sync_state;")
         self._conn.commit()
 
     def close(self) -> None:
@@ -166,6 +231,11 @@ class StateStore:
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+
+def _partial_first(records: list[ActivityRecord]) -> list[ActivityRecord]:
+    partial = [record for record in records if record.status == str(ActivityStatus.PARTIAL)]
+    return partial + [record for record in records if record.status != str(ActivityStatus.PARTIAL)]
 
 
 def _row_to_record(row: sqlite3.Row) -> ActivityRecord:

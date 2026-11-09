@@ -19,6 +19,7 @@ class SyncOptions:
     until: date
     dry_run: bool = False
     force: bool = False
+    explicit_window: bool = False
 
 
 class SyncRunner:
@@ -46,30 +47,83 @@ class SyncRunner:
             self.on_phase(message)
 
     def run(self, options: SyncOptions) -> Report:
+        total_unresolved = self.state.count_unresolved()
+        recoverable = self.state.list_recoverable(
+            since=options.since if options.explicit_window else None,
+            until=options.until if options.explicit_window else None,
+            limit=self.config.sync.recovery_limit,
+        )
+        deferred = total_unresolved - len(recoverable)
         report = Report(
             since=options.since,
             until=options.until,
             dry_run=options.dry_run,
             on_entry=self.on_entry,
+            deferred_failures=deferred,
         )
+        self._report_recovery_phase(recoverable, total_unresolved, deferred)
+
         processed: set[str] = set()
-
-        for record in self.state.list_by_status(ActivityStatus.PARTIAL):
-            self._retry_partial(record, report, options)
-            processed.add(record.garmin_id)
-
-        for record in self.state.list_by_status(ActivityStatus.FAILED):
+        for record in recoverable:
             activity = _activity_from_record(record)
-            self._import_activity(activity, report, options, existing=record)
+            skip_status = self._skip_status(activity)
+            if skip_status is not None:
+                self._mark_skipped(record, activity, skip_status, report, options)
+            elif record.status == str(ActivityStatus.PARTIAL) and not options.force:
+                self._retry_partial(record, report, options)
+            else:
+                self._import_activity(activity, report, options, existing=record)
             processed.add(record.garmin_id)
 
+        max_seen: datetime | None = None
         for activity in self.source.iter_activities(options.since, options.until):
-            if activity.garmin_id in processed:
-                continue
-            self._process_activity(activity, report, options)
-            processed.add(activity.garmin_id)
+            if max_seen is None or activity.start_time.isoformat() > max_seen.isoformat():
+                max_seen = activity.start_time
+            if activity.garmin_id not in processed:
+                self._process_activity(activity, report, options)
+                processed.add(activity.garmin_id)
+            if max_seen is not None and not options.dry_run and not options.explicit_window:
+                self.state.advance_watermark(max_seen)
 
         return report
+
+    def _report_recovery_phase(
+        self,
+        recoverable: list[ActivityRecord],
+        total_unresolved: int,
+        deferred: int,
+    ) -> None:
+        if self.config.sync.recovery_limit == 0:
+            self._phase(f"Recovery disabled, {deferred} failures deferred")
+        elif self.config.sync.recovery_limit is not None:
+            self._phase(f"Retrying {len(recoverable)} of {total_unresolved} unresolved failures")
+            if deferred:
+                self._phase(f"limit reached, {deferred} deferred")
+        elif recoverable:
+            partial = sum(
+                1 for record in recoverable if record.status == str(ActivityStatus.PARTIAL)
+            )
+            failed = len(recoverable) - partial
+            self._phase(f"Retrying {partial} partial and {failed} failed activities")
+
+    def _mark_skipped(
+        self,
+        record: ActivityRecord,
+        activity: GarminActivity,
+        status: ActivityStatus,
+        report: Report,
+        options: SyncOptions,
+    ) -> None:
+        if not options.dry_run:
+            self.state.set_status(record.garmin_id, status)
+        report.add(activity, status)
+
+    def _skip_status(self, activity: GarminActivity) -> ActivityStatus | None:
+        if not self._included(activity):
+            return ActivityStatus.SKIPPED_EXCLUDED
+        if not activity.has_gps:
+            return ActivityStatus.SKIPPED_NO_GPS
+        return None
 
     def _process_activity(
         self,
@@ -77,11 +131,9 @@ class SyncRunner:
         report: Report,
         options: SyncOptions,
     ) -> None:
-        if not self._included(activity):
-            report.add(activity, ActivityStatus.SKIPPED_EXCLUDED)
-            return
-        if not activity.has_gps:
-            report.add(activity, ActivityStatus.SKIPPED_NO_GPS)
+        skip_status = self._skip_status(activity)
+        if skip_status is not None:
+            report.add(activity, skip_status)
             return
 
         existing = self.state.get(activity.garmin_id)
@@ -129,6 +181,20 @@ class SyncRunner:
         options: SyncOptions,
     ) -> None:
         activity = _activity_from_record(record)
+        if options.dry_run:
+            message = (
+                "would retry metadata"
+                if record.wanderer_trail_id
+                else "partial record has no Wanderer trail id"
+            )
+            report.add(
+                activity,
+                ActivityStatus.PARTIAL,
+                wanderer_id=record.wanderer_trail_id,
+                message=message,
+            )
+            return
+
         if not record.wanderer_trail_id:
             self.state.set_status(
                 record.garmin_id,
@@ -139,15 +205,6 @@ class SyncRunner:
                 activity,
                 ActivityStatus.FAILED,
                 message="partial record has no Wanderer trail id",
-            )
-            return
-
-        if options.dry_run:
-            report.add(
-                activity,
-                ActivityStatus.PARTIAL,
-                wanderer_id=record.wanderer_trail_id,
-                message="would retry metadata",
             )
             return
 

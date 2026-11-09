@@ -112,7 +112,7 @@ def test_listing_chunks_long_ranges():
         chunk_days=31,
     )
 
-    source.iter_activities(date(2024, 1, 1), date(2024, 3, 15))
+    list(source.iter_activities(date(2024, 1, 1), date(2024, 3, 15)))
 
     assert fake.calls == [
         ("2024-01-01", "2024-01-31", "asc"),
@@ -137,7 +137,7 @@ def test_auth_errors_are_not_retried():
     )
 
     with pytest.raises(Exception, match="bad token"):
-        source.iter_activities(date(2024, 5, 1), date(2024, 5, 31))
+        list(source.iter_activities(date(2024, 5, 1), date(2024, 5, 31)))
 
 
 def test_extract_fit_header():

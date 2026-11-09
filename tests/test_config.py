@@ -19,6 +19,7 @@ def clean_env(monkeypatch):
         "GARMIN_EMAIL",
         "GARMIN_PASSWORD",
         "SYNC_SINCE",
+        "RECOVERY_LIMIT",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -52,6 +53,7 @@ sync:
     assert config.garmin_email == "me@example.com"
     assert config.state_dir == Path("/tmp/g2w-state")
     assert config.sync.since == date(2024, 1, 1)
+    assert config.sync.recovery_limit is None
     assert config.sync.exclude == ("strength_training", "indoor_cycling")
     assert config.sync.category_map["road_biking"] == ("Biking", "Road")
     assert config.sync.category_map["hiking"] == ("Hiking", None)
@@ -74,6 +76,49 @@ def test_env_overrides(tmp_path, monkeypatch):
     assert config.wanderer_url == "https://env.test"
     assert config.wanderer_token == "wanderer_key_env"
     assert config.sync.since == date(2024, 6, 1)
+
+
+def test_recovery_limit_from_config(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("sync:\n  recovery_limit: 25\n", encoding="utf-8")
+
+    config = load_config(path)
+
+    assert config.sync.recovery_limit == 25
+
+
+def test_recovery_limit_env_override(tmp_path, monkeypatch):
+    path = tmp_path / "config.yml"
+    path.write_text("sync:\n  recovery_limit: 25\n", encoding="utf-8")
+    monkeypatch.setenv("RECOVERY_LIMIT", "0")
+
+    config = load_config(path)
+
+    assert config.sync.recovery_limit == 0
+
+
+def test_recovery_limit_rejects_negative(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("sync:\n  recovery_limit: -1\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="recovery_limit"):
+        load_config(path)
+
+
+def test_recovery_limit_rejects_fractional(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("sync:\n  recovery_limit: 2.5\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="recovery_limit"):
+        load_config(path)
+
+
+def test_recovery_limit_rejects_non_integer(tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("sync:\n  recovery_limit: many\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="recovery_limit"):
+        load_config(path)
 
 
 def test_missing_config_raises():
