@@ -23,6 +23,7 @@ class SyncSettings:
     exclude: tuple[str, ...] = ()
     default_category: str | None = "Other"
     category_map: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    recovery_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +99,10 @@ def load_config(path: str | Path | None = None, *, require_file: bool = True) ->
         exclude=_as_tuple(sync.get("exclude")),
         default_category=sync.get("default_category", "Other"),
         category_map=_as_category_map(sync.get("category_map")),
+        recovery_limit=_as_optional_int(
+            os.environ.get("RECOVERY_LIMIT") or sync.get("recovery_limit"),
+            "sync.recovery_limit",
+        ),
     )
 
     retry_attempts = int(os.environ.get("RETRY_ATTEMPTS") or data.get("retry_attempts") or 3)
@@ -159,6 +164,22 @@ def _as_date(value: Any, field_name: str) -> date | None:
         return date.fromisoformat(str(value))
     except ValueError as exc:
         raise ConfigError(f"`{field_name}` must be YYYY-MM-DD, got {value!r}") from exc
+
+
+def _as_optional_int(value: Any, field_name: str) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise ConfigError(f"`{field_name}` must be a non-negative integer, got {value!r}")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"`{field_name}` must be a non-negative integer, got {value!r}") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise ConfigError(f"`{field_name}` must be a non-negative integer, got {value!r}")
+    if parsed < 0:
+        raise ConfigError(f"`{field_name}` must be a non-negative integer, got {value!r}")
+    return parsed
 
 
 def _as_tuple(value: Any) -> tuple[str, ...]:

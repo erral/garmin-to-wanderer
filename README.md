@@ -43,8 +43,12 @@ Wanderer
 
 ## Features
 
-- Incremental sync from the last imported activity by default.
-- Explicit date-range backfills with `--since` / `--until`.
+- Incremental sync from the last activity seen by a default run (a persisted
+  watermark) by default.
+- Explicit date-range backfills with `--since` / `--until`; a window scopes the
+  entire run, including failure recovery.
+- Default runs retry every unresolved `failed`/`partial` activity, with an
+  optional per-run recovery limit.
 - Live per-activity progress plus a minimal end summary.
 - Quiet, final-report, and verbose output modes.
 - Dry-run report with per-activity outcomes.
@@ -120,6 +124,7 @@ state_dir: ~/.local/share/garmin-to-wanderer
 
 sync:
   since: 2024-01-01
+  # recovery_limit: 50   # optional; omit for unlimited, 0 disables recovery
   default_category: Other
   category_map:
     road_biking: Biking/Road
@@ -129,7 +134,9 @@ sync:
     trail_running: Running/Trail
 ```
 
-`sync.since` is required on the first run. Later runs use the local cursor.
+`sync.since` is required on the first run. Later default runs use the persisted
+watermark, which advances past every activity a run sees, even ones that fail.
+Explicit `--since`/`--until` windows never move the watermark.
 
 ### Secrets
 
@@ -147,6 +154,7 @@ Prefer environment variables over storing secrets in the YAML:
 | `CONFIG_PATH` | Overrides the config file path. |
 | `STATE_DIR` | Overrides `state_dir`. |
 | `SYNC_SINCE` | Overrides `sync.since`. |
+| `RECOVERY_LIMIT` | Overrides `sync.recovery_limit` (`0` disables recovery). |
 
 The tool does not store your Garmin password. It caches Garmin session tokens
 under `state_dir/garmintoken/`.
@@ -182,8 +190,8 @@ garmin-to-wanderer status
 ```
 
 This prints the config path, Wanderer URL, token presence, Garmin token store,
-state database, cursor, and stored activity counts. It does not contact either
-service.
+state database, the `Last seen` watermark, unresolved `failed`/`partial` counts,
+and stored activity counts. It does not contact either service.
 
 The installed version is available with:
 
@@ -206,7 +214,9 @@ garmin-to-wanderer sync \
 ```
 
 The report lists what would be imported, skipped (no GPS, excluded type,
-already imported), deleted in Wanderer, partial, or failed.
+already imported), deleted in Wanderer, partial, or failed. The JSON report
+includes a `deferred_failures` count for unresolved failures outside the window
+or beyond a recovery limit.
 
 ### Import
 
@@ -214,9 +224,10 @@ already imported), deleted in Wanderer, partial, or failed.
 garmin-to-wanderer sync --since 2024-01-01 --until 2024-01-31
 ```
 
-Without `--since`, the tool starts 48 hours before the last imported activity.
-On the first run it falls back to `sync.since`; if neither exists, it stops with
-an error.
+Without `--since`, the tool starts 48 hours before the last activity seen by a
+default run (the watermark). On the first run it falls back to `sync.since`; if
+neither exists, it stops with an error. An explicit `--since`/`--until` overrides
+the watermark for that run.
 
 By default each activity is printed as soon as its outcome is known, followed by
 a minimal summary with per-status counts, elapsed time, and the report path when
@@ -227,9 +238,9 @@ a minimal summary with per-status counts, elapsed time, and the report path when
 | Mode | Behaviour |
 |---|---|
 | default | Live line per activity, then the minimal summary. |
-| `-q`, `--quiet` | Suppress live lines and the summary. Failures and partials still go to stderr. `--report` still writes the file, without the confirmation line. |
+| `-q`, `--quiet` | Suppress live lines and the summary. Failures, partials, and a non-zero deferred-failure count still go to stderr. `--report` still writes the file, without the confirmation line. |
 | `--final-report` | Print the expanded end-of-run report instead of the minimal summary. Combine with `--quiet` for an end-only report. |
-| `--verbose` | Add the Wanderer trail id, Garmin type key, description presence, success messages, and pre-action phase lines (download, upload/refresh, metadata update). |
+| `--verbose` | Add the Wanderer trail id, Garmin type key, description presence, success messages, and pre-action phase lines (recovery sweep, download, upload/refresh, metadata update). |
 | `--report PATH` | Write the JSON report in any mode. Each entry includes the Garmin `type_key` and `has_description`. |
 
 `--quiet` and `--verbose` are mutually exclusive; using both exits with code `2`
@@ -244,7 +255,18 @@ garmin-to-wanderer sync --since 2022-01-01 --until 2023-12-31
 ```
 
 The range is split into 31-day chunks before querying Garmin, so long backfills
-do not rely on one huge response.
+do not rely on one huge response. A backfill never advances the incremental
+watermark.
+
+### Failure recovery
+
+A default run retries every unresolved `failed` and `partial` activity across the
+whole state. An explicit window retries only the failures inside that window, and
+reports the rest as `deferred failures` in the summary and JSON report. Set
+`sync.recovery_limit` (or `RECOVERY_LIMIT`) to cap how many rows one run retries;
+the oldest are chosen first and the remainder are reported as deferred. `0`
+disables the recovery sweep. `--force` re-downloads and refreshes a `partial`
+trail instead of retrying only its metadata.
 
 ### Re-import or refresh
 

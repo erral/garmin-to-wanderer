@@ -47,12 +47,14 @@ class Report:
         until: date,
         dry_run: bool,
         on_entry: EntryCallback | None = None,
+        deferred_failures: int = 0,
     ):
         self.since = since
         self.until = until
         self.dry_run = dry_run
         self.entries: list[ReportEntry] = []
         self._on_entry = on_entry
+        self.deferred_failures = deferred_failures
 
     def add(
         self,
@@ -89,6 +91,7 @@ class Report:
             "until": self.until.isoformat(),
             "dry_run": self.dry_run,
             "counts": self.counts(),
+            "deferred_failures": self.deferred_failures,
             "entries": [entry.to_dict() for entry in self.entries],
         }
 
@@ -126,6 +129,8 @@ class Report:
     ) -> None:
         self._print_header()
         self._print_counts()
+        if self.deferred_failures:
+            print(deferred_failures_line(self.deferred_failures))
 
         if include_entries and self.entries:
             print("")
@@ -153,6 +158,10 @@ class Report:
     def _print_report_path(self, report_path: Path | None) -> None:
         if report_path is not None:
             print(f"Report written to {report_path}.")
+
+
+def deferred_failures_line(count: int) -> str:
+    return f"  deferred failures: {count}"
 
 
 def format_entry(entry: ReportEntry, *, verbose: bool = False) -> str:

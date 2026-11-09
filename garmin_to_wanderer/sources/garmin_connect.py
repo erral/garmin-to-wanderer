@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import time
 import zipfile
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -47,9 +48,8 @@ class GarminConnectSource:
             self._client = client
         return self._client
 
-    def iter_activities(self, since: date, until: date) -> list[GarminActivity]:
+    def iter_activities(self, since: date, until: date) -> Iterator[GarminActivity]:
         client = self._get_client()
-        activities: list[GarminActivity] = []
         seen: set[str] = set()
 
         for chunk_start, chunk_end in _date_chunks(since, until, self.chunk_days):
@@ -70,9 +70,7 @@ class GarminConnectSource:
                 if activity.garmin_id in seen:
                     continue
                 seen.add(activity.garmin_id)
-                activities.append(activity)
-
-        return activities
+                yield activity
 
     def _retry(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         for attempt in range(self.retry_attempts):
