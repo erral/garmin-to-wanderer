@@ -130,7 +130,7 @@ class Report:
         self._print_header()
         self._print_counts()
         if self.deferred_failures:
-            print(f"  deferred failures: {self.deferred_failures}")
+            print(deferred_failures_line(self.deferred_failures))
 
         if include_entries and self.entries:
             print("")
@@ -158,6 +158,10 @@ class Report:
     def _print_report_path(self, report_path: Path | None) -> None:
         if report_path is not None:
             print(f"Report written to {report_path}.")
+
+
+def deferred_failures_line(count: int) -> str:
+    return f"  deferred failures: {count}"
 
 
 def format_entry(entry: ReportEntry, *, verbose: bool = False) -> str:

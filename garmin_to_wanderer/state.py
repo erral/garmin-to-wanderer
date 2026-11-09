@@ -37,9 +37,6 @@ class StateStore:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        had_sync_state = self._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_state'"
-        ).fetchone()
         self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS activities (
@@ -63,7 +60,10 @@ class StateStore:
             );
             """
         )
-        if had_sync_state is None:
+        watermark = self._conn.execute(
+            "SELECT value FROM sync_state WHERE key = ?", (_WATERMARK_KEY,)
+        ).fetchone()
+        if watermark is None:
             seed = self._conn.execute(
                 "SELECT MAX(started_at) AS started_at FROM activities"
             ).fetchone()

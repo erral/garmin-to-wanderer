@@ -17,7 +17,7 @@ from garmin_to_wanderer.config import (
     save_config,
 )
 from garmin_to_wanderer.mapping import WandererTaxonomy
-from garmin_to_wanderer.reporting import ConsoleReporter
+from garmin_to_wanderer.reporting import ConsoleReporter, deferred_failures_line
 from garmin_to_wanderer.sources import (
     GarminAuthError,
     GarminConnectSource,
@@ -279,7 +279,7 @@ def sync(
 
     elapsed = time.monotonic() - started
     if quiet and report.deferred_failures:
-        typer.echo(f"  deferred failures: {report.deferred_failures}", err=True)
+        typer.echo(deferred_failures_line(report.deferred_failures), err=True)
     if report_path is not None:
         report.write_json(report_path)
 

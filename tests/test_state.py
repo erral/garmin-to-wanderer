@@ -198,3 +198,19 @@ def test_count_unresolved_counts_failed_and_partial(tmp_path):
         )
 
         assert state.count_unresolved() == 2
+
+
+def test_watermark_seeds_when_the_key_is_missing(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "state.db"
+    with StateStore(db) as state:
+        state.upsert(activity_at("x", datetime(2024, 5, 5, 9, 0)), status=ActivityStatus.FAILED)
+
+    conn = sqlite3.connect(db)
+    conn.execute("DELETE FROM sync_state")
+    conn.commit()
+    conn.close()
+
+    with StateStore(db) as state:
+        assert state.last_seen_started_at() == datetime(2024, 5, 5, 9, 0)

@@ -729,3 +729,44 @@ def test_dry_run_does_not_mutate_partial_without_trail_id(tmp_path, monkeypatch)
     assert result.exit_code == 1
     with StateStore(tmp_path / "state" / "state.db") as state:
         assert state.get("p1").status == "partial"
+
+
+def test_recovery_limit_is_not_bypassed_by_the_listing(tmp_path, monkeypatch):
+    path = write_config(tmp_path, recovery_limit=1)
+    older = state_activity("a", datetime(2024, 5, 1, 9, 0))
+    newer = state_activity("b", datetime(2024, 5, 20, 9, 0))
+    seed_state(tmp_path, [(newer, "failed", None), (older, "failed", None)])
+    source = ScriptedSource([older, newer])
+    patch_source(monkeypatch, source)
+    patch_wanderer(monkeypatch, RecordingWanderer())
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["sync", "--config", str(path), "--since", "2024-05-01", "--until", "2024-05-31"],
+    )
+
+    assert result.exit_code == 0
+    assert source.downloads == ["a"]
+    assert "deferred failures: 1" in result.output
+    with StateStore(tmp_path / "state" / "state.db") as state:
+        assert state.get("b").status == "failed"
+
+
+def test_recovery_limit_zero_does_not_retry_via_listing(tmp_path, monkeypatch):
+    path = write_config(tmp_path, recovery_limit=0)
+    failed = state_activity("a", datetime(2024, 5, 1, 9, 0))
+    seed_state(tmp_path, [(failed, "failed", None)])
+    source = ScriptedSource([failed])
+    patch_source(monkeypatch, source)
+    patch_wanderer(monkeypatch, RecordingWanderer())
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["sync", "--config", str(path), "--since", "2024-05-01"],
+    )
+
+    assert result.exit_code == 0
+    assert source.downloads == []
+    assert "deferred failures: 1" in result.output
+    with StateStore(tmp_path / "state" / "state.db") as state:
+        assert state.get("a").status == "failed"

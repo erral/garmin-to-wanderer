@@ -12,6 +12,8 @@ from garmin_to_wanderer.sources.base import GarminSource
 from garmin_to_wanderer.state import ActivityRecord, StateStore
 from garmin_to_wanderer.wanderer import WandererClient, WandererError
 
+_UNRESOLVED_STATUSES = (str(ActivityStatus.PARTIAL), str(ActivityStatus.FAILED))
+
 
 @dataclass(frozen=True, slots=True)
 class SyncOptions:
@@ -137,6 +139,8 @@ class SyncRunner:
             return
 
         existing = self.state.get(activity.garmin_id)
+        if existing is not None and existing.status in _UNRESOLVED_STATUSES:
+            return
         if existing is not None and not options.force:
             if existing.status == ActivityStatus.DELETED_IN_WANDERER:
                 report.add(
@@ -166,10 +170,6 @@ class SyncRunner:
                     ActivityStatus.SKIPPED_ALREADY_IMPORTED,
                     wanderer_id=existing.wanderer_trail_id,
                 )
-                return
-
-            if existing.status == ActivityStatus.PARTIAL:
-                self._retry_partial(existing, report, options)
                 return
 
         self._import_activity(activity, report, options, existing=existing)
